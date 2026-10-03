@@ -180,5 +180,48 @@ Nếu các bạn là giảng viên hoặc reviewer:
 
 - `Guide.md`: hướng dẫn từng bước để hoàn thành lab
 - `Rubric.md`: tiêu chí chấm điểm và bonus
+- `Report.md`: báo cáo chi tiết kết quả thực nghiệm và phân tích hệ thống
 
 Track này được thiết kế để các bạn không chỉ “dùng agent”, mà còn bắt đầu nghĩ như một người thiết kế **memory system** cho agent production.
+
+---
+
+## Kết quả Thực nghiệm và Phân tích (Completed by Le Nhu Y)
+
+### 1. Bảng kết quả Benchmark
+
+#### Standard Benchmark (`data/conversations.json`)
+| Agent | Agent tokens only | Prompt tokens processed | Cross-session recall | Response quality | Memory growth (bytes) | Compactions |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Baseline** | 2,424 | 19,406 | 2.0% | 7.0% | 0 B | 0 |
+| **Advanced** | 2,690 | 30,025 | **100.0%** | **90.0%** | 367 B | 0 |
+
+#### Long-Context Stress Benchmark (`data/advanced_long_context.json`)
+| Agent | Agent tokens only | Prompt tokens processed | Cross-session recall | Response quality | Memory growth (bytes) | Compactions |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Baseline** | 414 | 25,733 | 0.0% | 5.0% | 0 B | 0 |
+| **Advanced** | 816 | **12,968** | **100.0%** | **92.0%** | 278 B | **7** |
+
+### 2. Trả lời các câu hỏi phân tích của bài lab
+
+1. **Vì sao Advanced Agent có recall tốt hơn Baseline?**
+   - Baseline Agent chỉ lưu trữ tin nhắn trong cùng `thread_id`. Khi sang thread mới để trả lời câu hỏi recall, baseline hoàn toàn quên toàn bộ lịch sử (recall 0% - 2%).
+   - Advanced Agent sử dụng `User.md` (persistent memory) lưu trữ hồ sơ người dùng qua các session, tự động nạp vào prompt ở mọi phiên mới nên đạt tỷ lệ recall **100.0%**.
+
+2. **Vì sao Advanced Agent có thể tốn hơn Baseline ở hội thoại ngắn?**
+   - Ở các hội thoại ngắn dưới ngưỡng compact, Baseline chỉ mang theo vài tin nhắn trước đó trong prompt.
+   - Advanced Agent phải nạp thêm toàn bộ nội dung file `User.md` (persistent memory overhead) vào prompt ở mọi lượt gọi. Đây là trade-off chi phí cố định để đổi lấy khả năng nhớ dài hạn.
+
+3. **Vì sao Compact Memory giúp Advanced Agent có lợi thế vượt trội ở hội thoại dài?**
+   - Ở hội thoại rất dài, Baseline giữ nguyên toàn bộ lịch sử không nén, khiến lượng prompt token tăng theo hàm bậc hai $O(N^2 \cdot L)$ (lên đến 25,733 tokens).
+   - Advanced Agent kích hoạt `CompactMemoryManager` khi vượt ngưỡng `threshold_tokens` (7 lần trong bài stress test), nén tin nhắn cũ thành summary súc tích và chỉ giữ lại các tin gần nhất, giúp cắt giảm lượng prompt tokens xuống còn **12,968 tokens** (tiết kiệm gần **50%** chi phí context).
+
+4. **File memory tăng trưởng ra sao và các rủi ro đi kèm trong thực tế?**
+   - File `User.md` tăng lên 367 bytes ở bài standard và 278 bytes ở bài stress.
+   - Rủi ro thực tế:
+     - *Memory Bloat:* Lưu trữ mọi thông tin không chọn lọc gây phình context.
+     - *Fact Conflicts:* Đổi nơi ở, nghề nghiệp nếu không overwrite sẽ lưu fact cũ sai lệch.
+     - *Noise Injection:* Lưu nhầm chuyến công tác (Hà Nội) hoặc câu đùa (product manager).
+     - *False Fact Extraction:* Nhầm câu hỏi của người dùng thành thông tin cần lưu.
+   *(Các rủi ro này đã được xử lý triệt để thông qua các thuật toán lọc nhiễu, upsert fact và question-detection trong `src/memory_store.py`).*
+
